@@ -423,17 +423,27 @@ export default function CRMPage() {
         const updatedContacts = [...contacts, ...newContacts]
         setContacts(updatedContacts)
 
-        const baseUrl = window.location.origin + window.location.pathname
-        const encoded = encodeUrlSafeJson(updatedContacts)
-        const globalUrl = `${baseUrl}?data=${encoded}`
+        // Gera link curto via JSONBin.io
+        setShareUrl("Gerando link...");
+        try {
+          const binId = await saveContactsToJsonBin(updatedContacts);
+          const baseUrl = window.location.origin + window.location.pathname;
+          const url = `${baseUrl}?bin=${binId}`;
+          setShareUrl(url);
+          setIsShareDialogOpen(true);
+        } catch (e) {
+          setShareUrl("");
+          toast({
+            title: "Erro ao compartilhar",
+            description: "Não foi possível salvar os dados no serviço de compartilhamento.",
+            variant: "destructive",
+          });
+        }
 
         toast({
           title: "Dados Importados Globalmente",
           description: `${newContacts.length} novos contatos importados e disponíveis para todos os usuários.`
         })
-
-        setShareUrl(globalUrl)
-        setIsShareDialogOpen(true)
       } else {
         toast({
           title: "Nenhum Contato Novo",
@@ -571,7 +581,7 @@ export default function CRMPage() {
         variant: "destructive",
       });
     }
-  } 
+  }
 
   const copyShareUrl = async () => {
     try {
