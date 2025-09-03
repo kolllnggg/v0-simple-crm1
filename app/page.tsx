@@ -302,18 +302,17 @@ export default function CRMPage() {
 
         const cleanBytes = bytes.slice(startIndex)
 
+
         let csv = ""
         try {
           const decoder = new TextDecoder("utf-8", { fatal: false })
           csv = decoder.decode(cleanBytes)
           console.log("[v0] Successfully decoded with UTF-8")
         } catch (e) {
-          console.log("[v0] UTF-8 decoding failed, trying fallback")
+          console.log("[v0] UTF-8 decoding failed, trying fallback to latin1")
           const decoder = new TextDecoder("iso-8859-1", { fatal: false })
-          const latin1Text = decoder.decode(cleanBytes)
-          csv = decodeURIComponent(escape(latin1Text))
+          csv = decoder.decode(cleanBytes)
         }
-
         csv = csv.normalize("NFC")
 
         console.log("[v0] First 200 characters:", csv.substring(0, 200))
