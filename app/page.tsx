@@ -234,6 +234,19 @@ const decodeWebsiteForDisplay = (raw: string): string => {
   }
 }
 
+// Normaliza uma lista de contatos: decodifica websites para exibição e normaliza strings
+const normalizeContactsList = (list: any[]): Contact[] => {
+  return (list || []).map((c) => ({
+    id: c.id || (Date.now().toString() + Math.random().toString(36).substr(2, 9)),
+    name: (c.name || "").toString().normalize("NFC"),
+    phone: (c.phone || "").toString().replace(/\D/g, ""),
+    website: decodeWebsiteForDisplay((c.website || "").toString().trim()),
+    tipo_site: (c.tipo_site || "").toString().normalize("NFC"),
+    status: (c.status || "").toString().normalize("NFC"),
+    observations: (c.observations || "").toString().normalize("NFC"),
+  }))
+}
+
 export default function CRMPage() {
   const { toast } = useToast()
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -254,13 +267,14 @@ export default function CRMPage() {
   useEffect(() => {
     if (!isInitialLoad.current) return;
 
-    const loadGlobalData = () => {
+  const loadGlobalData = () => {
       try {
         const globalData = localStorage.getItem(GLOBAL_DATA_KEY);
         if (globalData) {
-          const parsed = JSON.parse(globalData);
-          setContacts(parsed);
-          setFilteredContacts(parsed);
+      const parsed = JSON.parse(globalData);
+      const normalized = normalizeContactsList(parsed);
+      setContacts(normalized);
+      setFilteredContacts(normalized);
           return true;
         }
       } catch (error) {
@@ -277,9 +291,10 @@ export default function CRMPage() {
       (async () => {
         try {
           const loadedContacts = await loadContactsFromJsonBin(binParam);
-          localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(loadedContacts));
-          setContacts(loadedContacts);
-          setFilteredContacts(loadedContacts);
+          const normalized = normalizeContactsList(loadedContacts);
+          localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(normalized));
+          setContacts(normalized);
+          setFilteredContacts(normalized);
           toast({
             title: "Contatos carregados do link",
             description: `${loadedContacts.length} contatos importados do compartilhamento.`
@@ -294,10 +309,11 @@ export default function CRMPage() {
       })();
     } else if (dataParam) {
       try {
-        const parsedData = decodeUrlSafeJson(dataParam);
-        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsedData));
-        setContacts(parsedData);
-        setFilteredContacts(parsedData);
+  const parsedData = decodeUrlSafeJson(dataParam);
+  const normalized = normalizeContactsList(parsedData);
+  localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(normalized));
+  setContacts(normalized);
+  setFilteredContacts(normalized);
         toast({
           title: "Dados Globais Carregados",
           description: `${parsedData.length} contatos agora disponíveis para todos os usuários.`
@@ -309,10 +325,11 @@ export default function CRMPage() {
     } else if (!loadGlobalData()) {
       const savedContacts = localStorage.getItem("crm-contacts");
       if (savedContacts) {
-        const parsed = JSON.parse(savedContacts);
-        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsed));
-        setContacts(parsed);
-        setFilteredContacts(parsed);
+  const parsed = JSON.parse(savedContacts);
+  const normalized = normalizeContactsList(parsed);
+  localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(normalized));
+  setContacts(normalized);
+  setFilteredContacts(normalized);
         localStorage.removeItem("crm-contacts");
       }
     }
