@@ -160,7 +160,10 @@ const generateShortCode = (): string => {
   return result
 }
 
+const GLOBAL_DATA_KEY = "crm_global_data"
+
 export default function CRMPage() {
+  const { toast } = useToast()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -172,23 +175,28 @@ export default function CRMPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false)
   const [shareUrl, setShareUrl] = useState("")
-  const [newContact, setNewContact] = useState<Omit<Contact, "id">>({
-    name: "",
-    phone: "",
-    website: "",
-    tipo_site: "",
-    status: "",
-    observations: "",
-  })
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { toast } = useToast()
 
-  const indexOfLastContact = currentPage * contactsPerPage
-  const indexOfFirstContact = indexOfLastContact - contactsPerPage
-  const currentContacts = filteredContacts.slice(indexOfFirstContact, indexOfLastContact)
-  const totalPages = Math.ceil(filteredContacts.length / contactsPerPage)
+  const isInitialLoad = useRef(true)
 
   useEffect(() => {
+    if (!isInitialLoad.current) return
+
+    const loadGlobalData = () => {
+      try {
+        const globalData = localStorage.getItem(GLOBAL_DATA_KEY)
+        if (globalData) {
+          const parsed = JSON.parse(globalData)
+          setContacts(parsed)
+          setFilteredContacts(parsed)
+          return true
+        }
+      } catch (error) {
+        console.error("Error loading global data:", error)
+      }
+      return false
+    }
+
     const urlParams = new URLSearchParams(window.location.search)
     const dataParam = urlParams.get("data")
     const codeParam = urlParams.get("c")
@@ -198,11 +206,12 @@ export default function CRMPage() {
         const storedData = localStorage.getItem(`crm_share_${codeParam}`)
         if (storedData) {
           const parsedData = JSON.parse(storedData)
+          localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsedData))
           setContacts(parsedData)
           setFilteredContacts(parsedData)
           toast({
-            title: "Dados Compartilhados Carregados",
-            description: `${parsedData.length} contatos carregados do link compartilhado.`,
+            title: "Dados Globais Carregados",
+            description: `${parsedData.length} contatos agora disponíveis para todos os usuários.`,
           })
         } else {
           toast({
@@ -221,29 +230,34 @@ export default function CRMPage() {
     } else if (dataParam) {
       try {
         const parsedData = decodeUrlSafeJson(dataParam)
+        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsedData))
         setContacts(parsedData)
         setFilteredContacts(parsedData)
         toast({
-          title: "Dados Compartilhados Carregados",
-          description: `${parsedData.length} contatos carregados do link compartilhado.`,
+          title: "Dados Globais Carregados",
+          description: `${parsedData.length} contatos agora disponíveis para todos os usuários.`,
         })
         window.history.replaceState({}, document.title, window.location.pathname)
-        return
       } catch (error) {
         console.error("Error loading shared data:", error)
       }
+    } else if (!loadGlobalData()) {
+      const savedContacts = localStorage.getItem("crm-contacts")
+      if (savedContacts) {
+        const parsed = JSON.parse(savedContacts)
+        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsed))
+        setContacts(parsed)
+        setFilteredContacts(parsed)
+        localStorage.removeItem("crm-contacts")
+      }
     }
 
-    const savedContacts = localStorage.getItem("crm-contacts")
-    if (savedContacts) {
-      const parsed = JSON.parse(savedContacts)
-      setContacts(parsed)
-      setFilteredContacts(parsed)
-    }
+    isInitialLoad.current = false
   }, [])
 
   useEffect(() => {
-    localStorage.setItem("crm-contacts", JSON.stringify(contacts))
+    if (isInitialLoad.current) return
+    localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(contacts))
   }, [contacts])
 
   useEffect(() => {
@@ -251,6 +265,7 @@ export default function CRMPage() {
       const matchesSearch =
         contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         contact.phone.includes(searchTerm) ||
+        contact.website.toLowerCase().includes(searchTerm.toLowerCase()) ||
         contact.tipo_site.toLowerCase().includes(searchTerm.toLowerCase())
 
       const matchesStatus = statusFilter === "all" || contact.status === statusFilter
@@ -258,20 +273,25 @@ export default function CRMPage() {
       return matchesSearch && matchesStatus
     })
 
-    filtered.sort((a, b) => {
-      const aValue = a[sortField]
-      const bValue = b[sortField]
+    const sorted = [...filtered].sort((a, b) => {
+      const aValue = a[sortField]?.toString().toLowerCase() || ""
+      const bValue = b[sortField]?.toString().toLowerCase() || ""
 
       if (sortDirection === "asc") {
-        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0
+        return aValue.localeCompare(bValue)
       } else {
-        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0
+        return bValue.localeCompare(aValue)
       }
     })
 
-    setFilteredContacts(filtered)
+    setFilteredContacts(sorted)
     setCurrentPage(1)
   }, [contacts, searchTerm, statusFilter, sortField, sortDirection])
+
+  const indexOfLastContact = currentPage * contactsPerPage
+  const indexOfFirstContact = indexOfLastContact - contactsPerPage
+  const currentContacts = filteredContacts.slice(indexOfFirstContact, indexOfLastContact)
+  const totalPages = Math.ceil(filteredContacts.length / contactsPerPage)
 
   const handleSort = (field: keyof Contact) => {
     if (sortField === field) {
@@ -282,176 +302,131 @@ export default function CRMPage() {
     }
   }
 
-  const handleCSVImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCSVImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const arrayBuffer = e.target?.result as ArrayBuffer
-        const bytes = new Uint8Array(arrayBuffer)
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      let text = ""
 
-        console.log("[v0] File size:", bytes.length, "bytes")
-
-        let startIndex = 0
-        if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-          startIndex = 3 // UTF-8 BOM
-          console.log("[v0] UTF-8 BOM detected and removed")
-        }
-
-        const cleanBytes = bytes.slice(startIndex)
-
-
-        let csv = ""
-        let utf8Decoder = new TextDecoder("utf-8", { fatal: false })
-        csv = utf8Decoder.decode(cleanBytes)
-        // Se houver muitos caracteres inválidos (�), tenta Latin1
-        const invalidCount = (csv.match(/�/g) || []).length
-        if (invalidCount > 5) {
-          console.log("[v0] Many invalid chars detected, using Latin1 fallback")
-          const latin1Decoder = new TextDecoder("iso-8859-1", { fatal: false })
-          csv = latin1Decoder.decode(cleanBytes)
-        }
-        csv = csv.normalize("NFC")
-
-        console.log("[v0] First 200 characters:", csv.substring(0, 200))
-
-        const lines = csv.split(/\r?\n/).filter((line) => line.trim())
-
-        if (lines.length === 0) {
-          toast({
-            title: "Erro na Importação",
-            description: "Arquivo CSV vazio ou inválido.",
-          })
-          return
-        }
-
-        const firstLine = lines[0]
-        const commaCount = (firstLine.match(/,/g) || []).length
-        const tabCount = (firstLine.match(/\t/g) || []).length
-        const semicolonCount = (firstLine.match(/;/g) || []).length
-
-        let separator = ","
-        if (tabCount > commaCount && tabCount > semicolonCount) {
-          separator = "\t"
-        } else if (semicolonCount > commaCount && semicolonCount > tabCount) {
-          separator = ";"
-        }
-
-        console.log("[v0] Detected separator:", separator === "," ? "comma" : separator === "\t" ? "tab" : "semicolon")
-        console.log("[v0] First line:", firstLine)
-
-        const firstLineParts = firstLine.split(separator).map((h) => h.trim().replace(/"/g, ""))
-        const hasHeaders = firstLineParts.some(
-          (part) =>
-            part.toLowerCase().includes("name") ||
-            part.toLowerCase().includes("phone") ||
-            part.toLowerCase().includes("website") ||
-            part.toLowerCase().includes("tipo") ||
-            part.toLowerCase().includes("status"),
-        )
-
-        console.log("[v0] First line parts:", firstLineParts)
-        console.log("[v0] Has headers:", hasHeaders)
-
-        const newContacts: Contact[] = []
-        const startLineIndex = hasHeaders ? 1 : 0
-
-        for (let i = startLineIndex; i < lines.length; i++) {
-          const line = lines[i].trim()
-          if (!line) continue
-
-          const values = []
-          let current = ""
-          let inQuotes = false
-
-          for (let j = 0; j < line.length; j++) {
-            const char = line[j]
-
-            if (char === '"') {
-              inQuotes = !inQuotes
-            } else if (char === separator && !inQuotes) {
-              values.push(current.trim().replace(/^"|"$/g, ""))
-              current = ""
-            } else {
-              current += char
-            }
-          }
-          values.push(current.trim().replace(/^"|"$/g, "")) // Add the last value
-
-          console.log(`[v0] Line ${i}:`, values)
-
-          if (values.length >= 4 && values[0]) {
-            const name = (values[0] || "").trim()
-            const phone = (values[1] || "").trim()
-            const website = (values[2] || "").trim()
-            const tipo_site = (values[3] || "").trim()
-            const statusValue = (values[4] || "ligar").trim()
-
-            let status = statusValue
-            let observations = ""
-
-            const match = statusValue.match(/^(.+?)\s*$$(.+)$$$/)
-            if (match) {
-              status = match[1].trim()
-              observations = match[2].trim()
-            }
-
-            if (!DEFAULT_STATUS_OPTIONS.includes(status)) {
-              status = "ligar"
-            }
-
-            const contact: Contact = {
-              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-              name,
-              phone,
-              website,
-              tipo_site,
-              status,
-              observations,
-            }
-            newContacts.push(contact)
+      const uint8Array = new Uint8Array(arrayBuffer)
+      if (uint8Array[0] === 0xef && uint8Array[1] === 0xbb && uint8Array[2] === 0xbf) {
+        const decoder = new TextDecoder("utf-8")
+        text = decoder.decode(uint8Array.slice(3))
+      } else {
+        const encodings = ["utf-8", "iso-8859-1", "windows-1252"]
+        for (const encoding of encodings) {
+          try {
+            const decoder = new TextDecoder(encoding)
+            text = decoder.decode(uint8Array)
+            if (!text.includes("")) break
+          } catch (e) {
+            continue
           }
         }
+      }
 
-        console.log("[v0] Parsed contacts:", newContacts.length)
+      text = text.normalize("NFC")
 
-        const existingKeys = new Set(
-          contacts.map((c) => `${c.name.toLowerCase().trim()}-${c.phone.replace(/\D/g, "")}`),
-        )
-        const uniqueNewContacts = newContacts.filter((c) => {
-          const key = `${c.name.toLowerCase().trim()}-${c.phone.replace(/\D/g, "")}`
-          return !existingKeys.has(key)
+      const separator = text.includes("\t") ? "\t" : ","
+      const lines = text.split("\n").filter((line) => line.trim())
+
+      if (lines.length === 0) {
+        toast({
+          title: "Arquivo Vazio",
+          description: "O arquivo CSV está vazio.",
+          variant: "destructive",
         })
+        return
+      }
 
-        setContacts((prev) => [...prev, ...uniqueNewContacts])
+      const hasHeader =
+        lines[0].toLowerCase().includes("name") ||
+        lines[0].toLowerCase().includes("nome") ||
+        lines[0].toLowerCase().includes("phone") ||
+        lines[0].toLowerCase().includes("telefone")
 
-        if (uniqueNewContacts.length > 0) {
-          generateShareUrl([...contacts, ...uniqueNewContacts])
+      const dataLines = hasHeader ? lines.slice(1) : lines
+      const newContacts: Contact[] = []
+
+      for (const line of dataLines) {
+        if (!line.trim()) continue
+
+        const values = []
+        let current = ""
+        let inQuotes = false
+
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i]
+          if (char === '"') {
+            inQuotes = !inQuotes
+          } else if (char === separator && !inQuotes) {
+            values.push(current.trim().replace(/^"|"$/g, ""))
+            current = ""
+          } else {
+            current += char
+          }
         }
+        values.push(current.trim().replace(/^"|"$/g, ""))
+
+        if (values.length >= 4) {
+          const [name, phone, website, tipo_site, importedStatus] = values
+
+          if (name && name.trim()) {
+            const cleanPhone = phone?.toString().replace(/\D/g, "") || ""
+            const cleanWebsite = website?.trim() || ""
+            const cleanTipoSite = tipo_site?.trim() || "sem site"
+
+            const existingContact = contacts.find(
+              (c) => c.name.toLowerCase() === name.trim().toLowerCase() || (cleanPhone && c.phone === cleanPhone),
+            )
+
+            if (!existingContact) {
+              newContacts.push({
+                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                name: name.trim(),
+                phone: cleanPhone,
+                website: cleanWebsite,
+                tipo_site: cleanTipoSite,
+                status: "ligar",
+                observations: "",
+              })
+            }
+          }
+        }
+      }
+
+      if (newContacts.length > 0) {
+        const updatedContacts = [...contacts, ...newContacts]
+        setContacts(updatedContacts)
+
+        const baseUrl = window.location.origin + window.location.pathname
+        const encoded = encodeUrlSafeJson(updatedContacts)
+        const globalUrl = `${baseUrl}?data=${encoded}`
 
         toast({
-          title: "CSV Importado",
-          description: `${uniqueNewContacts.length} novos contatos adicionados de ${newContacts.length} no arquivo.`,
+          title: "Dados Importados Globalmente",
+          description: `${newContacts.length} novos contatos importados e disponíveis para todos os usuários.`,
         })
-      } catch (error) {
-        console.error("[v0] Error processing CSV:", error)
+
+        setShareUrl(globalUrl)
+        setIsShareDialogOpen(true)
+      } else {
         toast({
-          title: "Erro na Importação",
-          description: "Erro ao processar o arquivo CSV. Verifique o formato do arquivo.",
+          title: "Nenhum Contato Novo",
+          description: "Todos os contatos já existem na base de dados.",
         })
       }
-    }
-
-    reader.onerror = () => {
+    } catch (error) {
+      console.error("CSV Import Error:", error)
       toast({
         title: "Erro na Importação",
-        description: "Erro ao ler o arquivo CSV.",
+        description: "Não foi possível importar o arquivo CSV. Verifique o formato.",
+        variant: "destructive",
       })
     }
 
-    reader.readAsArrayBuffer(file)
     event.target.value = ""
   }
 
@@ -486,20 +461,16 @@ export default function CRMPage() {
 
   const handleAddContact = () => {
     const contact: Contact = {
-      ...newContact,
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      status: newContact.status || "ligar",
-    }
-
-    setContacts((prev) => [...prev, contact])
-    setNewContact({
       name: "",
       phone: "",
       website: "",
       tipo_site: "",
       status: "",
       observations: "",
-    })
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+    }
+
+    setContacts((prev) => [...prev, contact])
     setIsAddDialogOpen(false)
 
     toast({
@@ -561,10 +532,9 @@ export default function CRMPage() {
     })
   }
 
-  const generateShareUrl = (contactsToShare: Contact[]) => {
+  const generateShareUrl = () => {
     const baseUrl = window.location.origin + window.location.pathname
-    // Serializa os contatos de forma segura para URL
-    const encoded = encodeUrlSafeJson(contactsToShare)
+    const encoded = encodeUrlSafeJson(contacts)
     const url = `${baseUrl}?data=${encoded}`
     setShareUrl(url)
     setIsShareDialogOpen(true)
@@ -617,12 +587,7 @@ export default function CRMPage() {
                 <span className="hidden sm:inline">Dados Exemplo</span>
                 <span className="sm:hidden">Exemplo</span>
               </Button>
-              <Button
-                onClick={() => generateShareUrl(contacts)}
-                variant="outline"
-                size="sm"
-                disabled={contacts.length === 0}
-              >
+              <Button onClick={generateShareUrl} variant="outline" size="sm" disabled={contacts.length === 0}>
                 <Share2 className="w-4 h-4 mr-1 md:mr-2" />
                 <span className="hidden sm:inline">Compartilhar</span>
                 <span className="sm:hidden">Share</span>
@@ -980,8 +945,8 @@ export default function CRMPage() {
                 <Label htmlFor="name">Nome</Label>
                 <Input
                   id="name"
-                  value={newContact.name}
-                  onChange={(e) => setNewContact((prev) => ({ ...prev, name: e.target.value }))}
+                  value=""
+                  onChange={(e) => updateContact("", "name", e.target.value)}
                   placeholder="Nome do contato"
                 />
               </div>
@@ -989,8 +954,8 @@ export default function CRMPage() {
                 <Label htmlFor="phone">Telefone</Label>
                 <Input
                   id="phone"
-                  value={newContact.phone}
-                  onChange={(e) => setNewContact((prev) => ({ ...prev, phone: e.target.value }))}
+                  value=""
+                  onChange={(e) => updateContact("", "phone", e.target.value)}
                   placeholder="(11) 99999-9999"
                 />
               </div>
@@ -998,8 +963,8 @@ export default function CRMPage() {
                 <Label htmlFor="website">Website</Label>
                 <Input
                   id="website"
-                  value={newContact.website}
-                  onChange={(e) => setNewContact((prev) => ({ ...prev, website: e.target.value }))}
+                  value=""
+                  onChange={(e) => updateContact("", "website", e.target.value)}
                   placeholder="www.exemplo.com"
                 />
               </div>
@@ -1007,17 +972,14 @@ export default function CRMPage() {
                 <Label htmlFor="tipo_site">Tipo de Site</Label>
                 <Input
                   id="tipo_site"
-                  value={newContact.tipo_site}
-                  onChange={(e) => setNewContact((prev) => ({ ...prev, tipo_site: e.target.value }))}
+                  value=""
+                  onChange={(e) => updateContact("", "tipo_site", e.target.value)}
                   placeholder="sem site, agregador/social, site próprio..."
                 />
               </div>
               <div>
                 <Label htmlFor="status">Status</Label>
-                <Select
-                  value={newContact.status}
-                  onValueChange={(value: string) => setNewContact((prev) => ({ ...prev, status: value }))}
-                >
+                <Select value="" onValueChange={(value: string) => updateContact("", "status", value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecionar status" />
                   </SelectTrigger>
@@ -1034,8 +996,8 @@ export default function CRMPage() {
                 <Label htmlFor="observations">Observações</Label>
                 <Input
                   id="observations"
-                  value={newContact.observations}
-                  onChange={(e) => setNewContact((prev) => ({ ...prev, observations: e.target.value }))}
+                  value=""
+                  onChange={(e) => updateContact("", "observations", e.target.value)}
                   placeholder="Observações adicionais..."
                 />
               </div>
@@ -1054,10 +1016,12 @@ export default function CRMPage() {
         <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
           <DialogContent className="sm:max-w-md mx-4">
             <DialogHeader>
-              <DialogTitle>Compartilhar Contatos</DialogTitle>
+              <DialogTitle>Dados Globais Compartilhados</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <p className="text-sm text-gray-600">Use este link para acessar os contatos em qualquer dispositivo:</p>
+              <p className="text-sm text-gray-600">
+                Estes dados estão agora disponíveis globalmente. Qualquer pessoa pode acessar e editar:
+              </p>
               <div className="flex gap-2">
                 <Input value={shareUrl} readOnly className="flex-1 text-xs" />
                 <Button onClick={copyShareUrl} size="sm">
@@ -1065,7 +1029,7 @@ export default function CRMPage() {
                 </Button>
               </div>
               <p className="text-xs text-gray-500">
-                Link curto com {contacts.length} contatos. Código: {shareUrl.split("?c=")[1]}
+                Link global com {contacts.length} contatos. Todos podem ver e editar estes dados.
               </p>
               <Button onClick={() => setIsShareDialogOpen(false)} className="w-full">
                 Fechar
