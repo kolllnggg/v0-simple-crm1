@@ -24,6 +24,7 @@ import {
   ChevronRight,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { encodeUrlSafeJson, decodeUrlSafeJson } from "@/lib/urlSafeJson"
 
 interface Contact {
   id: string
@@ -219,14 +220,7 @@ export default function CRMPage() {
       }
     } else if (dataParam) {
       try {
-        let parsedData
-        try {
-          const decompressed = atob(dataParam)
-          parsedData = JSON.parse(decompressed)
-        } catch {
-          parsedData = JSON.parse(decodeURIComponent(dataParam))
-        }
-
+        const parsedData = decodeUrlSafeJson(dataParam)
         setContacts(parsedData)
         setFilteredContacts(parsedData)
         toast({
@@ -570,11 +564,9 @@ export default function CRMPage() {
 
   const generateShareUrl = (contactsToShare: Contact[]) => {
     const baseUrl = window.location.origin + window.location.pathname
-    const shortCode = generateShortCode()
-
-    localStorage.setItem(`crm_share_${shortCode}`, JSON.stringify(contactsToShare))
-
-    const url = `${baseUrl}?c=${shortCode}`
+    // Serializa os contatos de forma segura para URL
+    const encoded = encodeUrlSafeJson(contactsToShare)
+    const url = `${baseUrl}?data=${encoded}`
     setShareUrl(url)
     setIsShareDialogOpen(true)
   }
@@ -798,7 +790,7 @@ export default function CRMPage() {
                           <span>{getStatusIcon(contact.status)}</span>
                           <Select
                             value={contact.status}
-                            onValueChange={(value) => updateContact(contact.id, "status", value)}
+                            onValueChange={(value: string) => updateContact(contact.id, "status", value)}
                           >
                             <SelectTrigger className="w-full">
                               <SelectValue placeholder="Selecionar status" />
@@ -899,7 +891,7 @@ export default function CRMPage() {
                         <span className="text-lg">{getStatusIcon(contact.status)}</span>
                         <Select
                           value={contact.status}
-                          onValueChange={(value) => updateContact(contact.id, "status", value)}
+                          onValueChange={(value: string) => updateContact(contact.id, "status", value)}
                         >
                           <SelectTrigger className="flex-1">
                             <SelectValue placeholder="Status" />
@@ -1025,7 +1017,7 @@ export default function CRMPage() {
                 <Label htmlFor="status">Status</Label>
                 <Select
                   value={newContact.status}
-                  onValueChange={(value) => setNewContact((prev) => ({ ...prev, status: value }))}
+                  onValueChange={(value: string) => setNewContact((prev) => ({ ...prev, status: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecionar status" />
