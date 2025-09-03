@@ -376,21 +376,35 @@ export default function CRMPage() {
       let text = ""
 
       const uint8Array = new Uint8Array(arrayBuffer)
-      if (uint8Array[0] === 0xef && uint8Array[1] === 0xbb && uint8Array[2] === 0xbf) {
-        const decoder = new TextDecoder("utf-8")
-        text = decoder.decode(uint8Array.slice(3))
-      } else {
-        const encodings = ["utf-8", "iso-8859-1", "windows-1252"]
-        for (const encoding of encodings) {
-          try {
-            const decoder = new TextDecoder(encoding)
-            text = decoder.decode(uint8Array)
-            if (!text.includes("")) break
-          } catch (e) {
-            continue
+
+      // If BOM present, strip it first
+      let dataView = uint8Array
+      if (uint8Array.length >= 3 && uint8Array[0] === 0xef && uint8Array[1] === 0xbb && uint8Array[2] === 0xbf) {
+        dataView = uint8Array.slice(3)
+      }
+
+      // Try multiple decoders and pick the one with fewest replacement characters (�)
+      const encodings = ["utf-8", "windows-1252", "iso-8859-1"]
+      let bestText = ""
+      let bestScore = Number.POSITIVE_INFINITY
+
+      for (const encoding of encodings) {
+        try {
+          const decoder = new TextDecoder(encoding)
+          const candidate = decoder.decode(dataView)
+          const replacementCount = (candidate.match(/�/g) || []).length
+          // prefer fewer replacements, tie-breaker: prefer utf-8
+          const score = replacementCount + (encoding === "utf-8" ? 0 : 0.1)
+          if (score < bestScore) {
+            bestScore = score
+            bestText = candidate
           }
+        } catch (e) {
+          // ignore and try next
         }
       }
+
+      text = (bestText || "").normalize("NFC")
 
       text = text.normalize("NFC")
 
