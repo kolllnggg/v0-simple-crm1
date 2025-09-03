@@ -25,12 +25,21 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { encodeUrlSafeJson, decodeUrlSafeJson } from "@/lib/urlSafeJson"
+import { saveBinOnServer, fetchBinFromServer } from "@/lib/crmServer"
 
 // Chave demo pública do JSONBin.io (atenção: dados são públicos e podem ser apagados a qualquer momento)
 const JSONBIN_API_KEY = "$2b$10$w1Qw8Qw8Qw8Qw8Qw8Qw8QOQw8Qw8Qw8Qw8Qw8Qw8Qw8Qw8Qw8Qw8"; // Troque por sua chave se quiser privacidade
 const JSONBIN_API_URL = "https://api.jsonbin.io/v3/b";
 
 async function saveContactsToJsonBin(contacts: Contact[]): Promise<string> {
+  // primeiro tenta salvar no servidor local, se houver
+  try {
+    const id = await saveBinOnServer(contacts)
+    return id
+  } catch (e) {
+    console.warn("Local server save failed, falling back to JSONBin", e)
+  }
+
   const response = await fetch(JSONBIN_API_URL, {
     method: "POST",
     headers: {
@@ -38,21 +47,29 @@ async function saveContactsToJsonBin(contacts: Contact[]): Promise<string> {
       "X-Master-Key": JSONBIN_API_KEY,
     },
     body: JSON.stringify({ contacts }),
-  });
-  if (!response.ok) throw new Error("Erro ao salvar no JSONBin.io");
-  const data = await response.json();
-  return data.record && data.metadata && data.metadata.id ? data.metadata.id : data.id;
+  })
+  if (!response.ok) throw new Error("Erro ao salvar no JSONBin.io")
+  const data = await response.json()
+  return data.record && data.metadata && data.metadata.id ? data.metadata.id : data.id
 }
 
 async function loadContactsFromJsonBin(binId: string): Promise<Contact[]> {
+  // tenta buscar do servidor local primeiro
+  try {
+    const data = await fetchBinFromServer(binId)
+    return data
+  } catch (e) {
+    console.warn("Local server fetch failed, falling back to JSONBin", e)
+  }
+
   const response = await fetch(`${JSONBIN_API_URL}/${binId}/latest`, {
     headers: {
       "X-Master-Key": JSONBIN_API_KEY,
     },
-  });
-  if (!response.ok) throw new Error("Erro ao carregar do JSONBin.io");
-  const data = await response.json();
-  return data.record.contacts;
+  })
+  if (!response.ok) throw new Error("Erro ao carregar do JSONBin.io")
+  const data = await response.json()
+  return data.record.contacts
 }
 
 interface Contact {
