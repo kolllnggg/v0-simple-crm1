@@ -304,14 +304,14 @@ export default function CRMPage() {
 
 
         let csv = ""
-        try {
-          const decoder = new TextDecoder("utf-8", { fatal: false })
-          csv = decoder.decode(cleanBytes)
-          console.log("[v0] Successfully decoded with UTF-8")
-        } catch (e) {
-          console.log("[v0] UTF-8 decoding failed, trying fallback to latin1")
-          const decoder = new TextDecoder("iso-8859-1", { fatal: false })
-          csv = decoder.decode(cleanBytes)
+        let utf8Decoder = new TextDecoder("utf-8", { fatal: false })
+        csv = utf8Decoder.decode(cleanBytes)
+        // Se houver muitos caracteres inválidos (�), tenta Latin1
+        const invalidCount = (csv.match(/�/g) || []).length
+        if (invalidCount > 5) {
+          console.log("[v0] Many invalid chars detected, using Latin1 fallback")
+          const latin1Decoder = new TextDecoder("iso-8859-1", { fatal: false })
+          csv = latin1Decoder.decode(cleanBytes)
         }
         csv = csv.normalize("NFC")
 
