@@ -191,6 +191,49 @@ const generateShortCode = (): string => {
 
 const GLOBAL_DATA_KEY = "crm_global_data"
 
+/**
+ * Decodifica para exibição o campo `website` quando contém percent-encoding.
+ * Implementação B: se houver query param `text`, decodifica apenas esse valor;
+ * caso contrário, tenta decodificar a string inteira quando detectar %XX.
+ */
+const decodeWebsiteForDisplay = (raw: string): string => {
+  if (!raw) return "";
+  try {
+    // quick check for percent-encoding
+    if (!/%[0-9A-Fa-f]{2}/.test(raw)) return raw.normalize("NFC");
+
+    try {
+      const url = new URL(raw);
+      const params = new URLSearchParams(url.search);
+      if (params.has("text")) {
+        try {
+          const decoded = decodeURIComponent(params.get("text") || "")
+          params.set("text", decoded)
+          url.search = params.toString()
+          return url.toString().normalize("NFC")
+        } catch (e) {
+          // fallthrough to decode whole string
+        }
+      }
+      // no text param or decoding failed - try decoding whole string
+      try {
+        return decodeURIComponent(raw).normalize("NFC");
+      } catch (e) {
+        return raw.normalize("NFC");
+      }
+    } catch (e) {
+      // not a full URL - try decodeURIComponent on the raw value
+      try {
+        return decodeURIComponent(raw).normalize("NFC");
+      } catch (e) {
+        return raw.normalize("NFC");
+      }
+    }
+  } catch (e) {
+    return raw.normalize("NFC");
+  }
+}
+
 export default function CRMPage() {
   const { toast } = useToast()
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -397,7 +440,7 @@ export default function CRMPage() {
 
           if (name && name.trim()) {
             const cleanPhone = phone?.toString().replace(/\D/g, "") || ""
-            const cleanWebsite = website?.trim() || ""
+            const cleanWebsite = decodeWebsiteForDisplay(website?.trim() || "")
             const cleanTipoSite = tipo_site?.trim() || "sem site"
 
             const existingContact = contacts.find(
