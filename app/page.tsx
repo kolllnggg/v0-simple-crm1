@@ -26,6 +26,35 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { encodeUrlSafeJson, decodeUrlSafeJson } from "@/lib/urlSafeJson"
 
+// Chave demo pública do JSONBin.io (atenção: dados são públicos e podem ser apagados a qualquer momento)
+const JSONBIN_API_KEY = "$2b$10$w1Qw8Qw8Qw8Qw8Qw8Qw8QOQw8Qw8Qw8Qw8Qw8Qw8Qw8Qw8Qw8Qw8"; // Troque por sua chave se quiser privacidade
+const JSONBIN_API_URL = "https://api.jsonbin.io/v3/b";
+
+async function saveContactsToJsonBin(contacts: Contact[]): Promise<string> {
+  const response = await fetch(JSONBIN_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Master-Key": JSONBIN_API_KEY,
+    },
+    body: JSON.stringify({ contacts }),
+  });
+  if (!response.ok) throw new Error("Erro ao salvar no JSONBin.io");
+  const data = await response.json();
+  return data.record && data.metadata && data.metadata.id ? data.metadata.id : data.id;
+}
+
+async function loadContactsFromJsonBin(binId: string): Promise<Contact[]> {
+  const response = await fetch(`${JSONBIN_API_URL}/${binId}/latest`, {
+    headers: {
+      "X-Master-Key": JSONBIN_API_KEY,
+    },
+  });
+  if (!response.ok) throw new Error("Erro ao carregar do JSONBin.io");
+  const data = await response.json();
+  return data.record.contacts;
+}
+
 interface Contact {
   id: string
   name: string
@@ -180,80 +209,73 @@ export default function CRMPage() {
   const isInitialLoad = useRef(true)
 
   useEffect(() => {
-    if (!isInitialLoad.current) return
+    if (!isInitialLoad.current) return;
 
     const loadGlobalData = () => {
       try {
-        const globalData = localStorage.getItem(GLOBAL_DATA_KEY)
+        const globalData = localStorage.getItem(GLOBAL_DATA_KEY);
         if (globalData) {
-          const parsed = JSON.parse(globalData)
-          setContacts(parsed)
-          setFilteredContacts(parsed)
-          return true
+          const parsed = JSON.parse(globalData);
+          setContacts(parsed);
+          setFilteredContacts(parsed);
+          return true;
         }
       } catch (error) {
-        console.error("Error loading global data:", error)
+        console.error("Error loading global data:", error);
       }
-      return false
-    }
+      return false;
+    };
 
-    const urlParams = new URLSearchParams(window.location.search)
-    const dataParam = urlParams.get("data")
-    const codeParam = urlParams.get("c")
+    const urlParams = new URLSearchParams(window.location.search);
+    const binParam = urlParams.get("bin");
+    const dataParam = urlParams.get("data");
 
-    if (codeParam) {
-      try {
-        const storedData = localStorage.getItem(`crm_share_${codeParam}`)
-        if (storedData) {
-          const parsedData = JSON.parse(storedData)
-          localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsedData))
-          setContacts(parsedData)
-          setFilteredContacts(parsedData)
+    if (binParam) {
+      (async () => {
+        try {
+          const loadedContacts = await loadContactsFromJsonBin(binParam);
+          localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(loadedContacts));
+          setContacts(loadedContacts);
+          setFilteredContacts(loadedContacts);
           toast({
-            title: "Dados Globais Carregados",
-            description: `${parsedData.length} contatos agora disponíveis para todos os usuários.`,
-          })
-        } else {
+            title: "Contatos carregados do link",
+            description: `${loadedContacts.length} contatos importados do compartilhamento.`
+          });
+        } catch (e) {
           toast({
-            title: "Link Inválido",
-            description: "Os dados compartilhados não foram encontrados.",
+            title: "Erro ao carregar compartilhamento",
+            description: "Não foi possível buscar os dados do link.",
             variant: "destructive",
-          })
+          });
         }
-      } catch (error) {
-        toast({
-          title: "Erro ao Carregar",
-          description: "Não foi possível carregar os dados compartilhados.",
-          variant: "destructive",
-        })
-      }
+      })();
     } else if (dataParam) {
       try {
-        const parsedData = decodeUrlSafeJson(dataParam)
-        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsedData))
-        setContacts(parsedData)
-        setFilteredContacts(parsedData)
+        const parsedData = decodeUrlSafeJson(dataParam);
+        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsedData));
+        setContacts(parsedData);
+        setFilteredContacts(parsedData);
         toast({
           title: "Dados Globais Carregados",
-          description: `${parsedData.length} contatos agora disponíveis para todos os usuários.`,
-        })
-        window.history.replaceState({}, document.title, window.location.pathname)
+          description: `${parsedData.length} contatos agora disponíveis para todos os usuários.`
+        });
+        window.history.replaceState({}, document.title, window.location.pathname);
       } catch (error) {
-        console.error("Error loading shared data:", error)
+        console.error("Error loading shared data:", error);
       }
     } else if (!loadGlobalData()) {
-      const savedContacts = localStorage.getItem("crm-contacts")
+      const savedContacts = localStorage.getItem("crm-contacts");
       if (savedContacts) {
-        const parsed = JSON.parse(savedContacts)
-        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsed))
-        setContacts(parsed)
-        setFilteredContacts(parsed)
-        localStorage.removeItem("crm-contacts")
+        const parsed = JSON.parse(savedContacts);
+        localStorage.setItem(GLOBAL_DATA_KEY, JSON.stringify(parsed));
+        setContacts(parsed);
+        setFilteredContacts(parsed);
+        localStorage.removeItem("crm-contacts");
       }
     }
 
-    isInitialLoad.current = false
-  }, [])
+    isInitialLoad.current = false;
+  }, []);
 
   useEffect(() => {
     if (isInitialLoad.current) return
@@ -407,7 +429,7 @@ export default function CRMPage() {
 
         toast({
           title: "Dados Importados Globalmente",
-          description: `${newContacts.length} novos contatos importados e disponíveis para todos os usuários.`,
+          description: `${newContacts.length} novos contatos importados e disponíveis para todos os usuários.`
         })
 
         setShareUrl(globalUrl)
@@ -455,7 +477,7 @@ export default function CRMPage() {
 
     toast({
       title: "CSV Exportado",
-      description: `${contacts.length} contatos exportados com sucesso.`,
+      description: `${contacts.length} contatos exportados com sucesso.`
     })
   }
 
@@ -475,7 +497,7 @@ export default function CRMPage() {
 
     toast({
       title: "Contato Adicionado",
-      description: `${contact.name} foi adicionado com sucesso.`,
+      description: `${contact.name} foi adicionado com sucesso.`
     })
   }
 
@@ -532,13 +554,24 @@ export default function CRMPage() {
     })
   }
 
-  const generateShareUrl = () => {
-    const baseUrl = window.location.origin + window.location.pathname
-    const encoded = encodeUrlSafeJson(contacts)
-    const url = `${baseUrl}?data=${encoded}`
-    setShareUrl(url)
-    setIsShareDialogOpen(true)
-  }
+  const generateShareUrl = async () => {
+    if (!contacts.length) return;
+    setShareUrl("Gerando link...");
+    try {
+      const binId = await saveContactsToJsonBin(contacts);
+      const baseUrl = window.location.origin + window.location.pathname;
+      const url = `${baseUrl}?bin=${binId}`;
+      setShareUrl(url);
+      setIsShareDialogOpen(true);
+    } catch (e) {
+      setShareUrl("");
+      toast({
+        title: "Erro ao compartilhar",
+        description: "Não foi possível salvar os dados no serviço de compartilhamento.",
+        variant: "destructive",
+      });
+    }
+  } 
 
   const copyShareUrl = async () => {
     try {
