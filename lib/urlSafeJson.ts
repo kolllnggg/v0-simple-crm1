@@ -1,10 +1,11 @@
 // utils/urlSafeJson.ts
-// Utilitário para serialização e desserialização segura de JSON para URL
+import LZString from "lz-string"
 
+// Utilitário para serialização e desserialização compactada e segura de JSON para URL
 export function encodeUrlSafeJson(obj: any): string {
-  return encodeURIComponent(JSON.stringify(obj));
+  return LZString.compressToEncodedURIComponent(JSON.stringify(obj));
 }
 
 export function decodeUrlSafeJson(str: string): any {
-  return JSON.parse(decodeURIComponent(str));
+  return JSON.parse(LZString.decompressFromEncodedURIComponent(str));
 }
